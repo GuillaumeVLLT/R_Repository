@@ -1,0 +1,102 @@
+## This code aims to help in analysing data from outcome-of-care-measures.csv
+
+## The first function, best, takes in argument the name of a state and of a sickness outcome, and returns the hospital with the best (=lowest) mortality rate for this sickness in the given state
+best <- function(state_name, outcome_name){ ##Possible outcome_name valid values : Heart.Attack, Heart.Failure, Pneumonia
+	
+  outcome <- read.csv("outcome-of-care-measures.csv", colClasses = "character") ##colClasses as character ensures that numbers are properly loaded when they start with 0s, as they're IDs rather than numeric values
+	if (!(state_name %in% unique(outcome$State))) { ##checks the validity of the state_name 
+		stop("Invalid State")
+	}
+
+	outcome_column_name <- paste("Hospital.30.Day.Death..Mortality..Rates.from.",outcome_name,sep="") ##columns names are formatted in a standardized way, which allows us to simply concatenate the start of the name with the outcome_name
+	if (!(outcome_column_name %in% names(outcome))){ ##checks the validity of outcome_name
+		stop("Invalid Outcome")
+	}
+
+	outcome_in_state <- subset(outcome, State == state_name) 
+	outcome_in_state[[outcome_column_name]] <- suppressWarnings(as.numeric(outcome_in_state[[outcome_column_name]])) ##Otherwise, will take the minimum rate string-wise, which is not the same order as numeric-wise
+	minimal_rate <- min(outcome_in_state[,outcome_column_name], na.rm = TRUE)
+	best_hospitals_df <- subset(outcome_in_state, outcome_in_state[[outcome_column_name]] == minimal_rate)
+	best_hospitals_vector <- best_hospitals_df$Hospital.Name ##A vector, rather than one value, to see if some are tied. The tiebreak is done by getting the first alphabetically sorted.
+	best_hospitals_vector <- sort(best_hospitals_vector)
+	best_hospitals_vector[1]	
+}
+
+
+## The second function, rankhospital, takes the same arguments as the first, with the addition of a ranking. It returns the hospital in the adequate state-wide ranking for the outcome mortality rate (1st= lowest rate, last = highest rate)
+rankhospital <- function(state_name, outcome_name, ranking){
+
+	outcome <- read.csv("outcome-of-care-measures.csv", colClasses = "character") ##colClasses as character ensures that numbers are properly loaded when they start with 0s, as they're IDs rather than numeric values
+	if (!(state_name %in% unique(outcome$State))) {
+		stop("Invalid State")
+	}
+
+	outcome_column_name <- paste("Hospital.30.Day.Death..Mortality..Rates.from.",outcome_name,sep="") 
+	if (!(outcome_column_name %in% names(outcome))){
+		stop("Invalid Outcome")
+	}
+
+	outcome_in_state <- subset(outcome, State == state_name)
+  	outcome_in_state[[outcome_column_name]] <- suppressWarnings(as.numeric(outcome_in_state[[outcome_column_name]]))
+	ranked_hospitals <- outcome_in_state[, c("Hospital.Name", outcome_column_name)]
+	ranked_hospitals <- ranked_hospitals[order(ranked_hospitals[[outcome_column_name]],
+								 ranked_hospitals$Hospital.Name,
+								 na.last = NA),]
+	last_rank <- nrow(ranked_hospitals)	
+	ranked_hospitals[,"Rank"] <- 1:last_rank
+	
+  if (ranking=="best"){ ##If ranking is "best", takes the first-ranked hospital. If worst, takes the last-ranked hospital. Otherwise, if numeric, takes the indicated ranking, or returns NA if ranking is higher than number of hospitals in the state. 
+		return(ranked_hospitals$Hospital.Name[1])
+	} else if (ranking=="worst") {
+		return(ranked_hospitals$Hospital.Name[last_rank])
+	} else if (ranking==as.integer(ranking) && ranking>0 && ranking<=last_rank) {
+		return(ranked_hospitals$Hospital.Name[ranking])
+	} else {
+		return(NA)
+	}
+}
+
+##The third function, rankall, returns a dataframe listing, for each state, the name of the hospital with the given ranking (default is best). If there's no hospital at the given ranking for a state, it displays a NA value. 
+rankall <- function(outcome_name, ranking="best"){ ##Not calling rankhospital is intentional, to train
+
+	outcome <- read.csv("outcome-of-care-measures.csv", colClasses = "character") ##colClasses as character ensures that numbers are properly loaded when they start with 0s, as they're IDs rather than numeric values
+	outcome_column_name <- paste("Hospital.30.Day.Death..Mortality..Rates.from.",outcome_name,sep="") 
+	if (!(outcome_column_name %in% names(outcome))){
+		stop("Invalid Outcome")
+	}
+
+	outcome[[outcome_column_name]] <- suppressWarnings(as.numeric(outcome[[outcome_column_name]]))
+	ranked_hospitals <- outcome[, c("Hospital.Name", "State", outcome_column_name)]
+	ranked_hospitals <- ranked_hospitals[order(ranked_hospitals$State,
+								 ranked_hospitals[[outcome_column_name]],
+								 ranked_hospitals$Hospital.Name,
+								 na.last = NA),]
+	ranking_by_state <- split(ranked_hospitals, ranked_hospitals$State)
+
+	state_vector <- character() ##Setting up vectors so that we don't need to create a dataframe and use rbind, vectors are a little more optimized
+	hospital_vector  <- character()
+
+	if (ranking=="best"){ ##If ranking is best, we just take the first value from each dataframe stored in the list resulting from the split by state
+		for (state_data in ranking_by_state){
+			state_vector <- c(state_vector, state_data$State[1])
+			hospital_vector <- c(hospital_vector,state_data$Hospital.Name[1])
+		}
+	} else if (ranking=="worst") { ##If ranking is worst, we take the last value from each dataframe
+		for (state_data in ranking_by_state){
+			state_vector <- c(state_vector, state_data$State[1])
+			hospital_vector <- c(hospital_vector,state_data$Hospital.Name[nrow(state_data)])
+		}
+	} else {
+		for (state_data in ranking_by_state){ ##If ranking is a given integer, we take the adequate value from each dataframe, except when the ranking is higher than the number of ranked hospitals - then we put an NA for this state
+			state_vector <- c(state_vector, state_data$State[1])
+			if (ranking <= nrow(state_data)){
+				hospital_vector <- c(hospital_vector,state_data$Hospital.Name[ranking])
+			} else {
+				hospital_vector <- c(hospital_vector, NA)
+			}	
+		}
+	}
+
+	hospitals_with_searched_ranking = data.frame(Hospital.Name = hospital_vector, State = state_vector) ##What is returned isn't a vector, but a dataframe with the first column being the names of hospitals with adequate ranking, followed by the state they're in.
+	hospitals_with_searched_ranking
+}
